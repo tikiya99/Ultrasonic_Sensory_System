@@ -5,15 +5,33 @@
 const int trigPins[] = {5, 14, 26, 27, 22};
 const int echoPins[] = {18, 13, 25, 32, 23};
 const int numSensors = sizeof(trigPins) / sizeof(trigPins[0]);
-const int EMERG_PIN = 33; //Emergency stop pin for the Drive control
+const int EMERG_PIN = 33; // Define an output pin for the emergency signal
 
 #define SOUND_SPEED 0.034
 
 long durations[numSensors];
 float distances[numSensors];
 
+uint8_t peerAddress[] = {0x08, 0xD1, 0xF9, 0xDC, 0xB6, 0x20};
+
 void setup() {
   Serial.begin(115200);
+  
+  WiFi.mode(WIFI_STA);
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, peerAddress, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Failed to add peer");
+    return;
+  }
   
   for (int i = 0; i < numSensors; i++) {
     pinMode(trigPins[i], OUTPUT);
@@ -24,6 +42,17 @@ void setup() {
   digitalWrite(EMERG_PIN, LOW); // Ensure the emergency pin is initially low
 
   Serial.println("Setup complete. Sensors ready.");
+}
+
+void sendAlert() {
+  const char *message = "Distance alert!";
+  esp_err_t result = esp_now_send(peerAddress, (uint8_t *)message, strlen(message));
+  
+  if (result == ESP_OK) {
+    Serial.println("Alert sent successfully");
+  } else {
+    Serial.printf("Error sending the data: %d\n", result);
+  }
 }
 
 void loop() {
@@ -41,13 +70,14 @@ void loop() {
 
     if (distances[i] <= 20) {
       digitalWrite(EMERG_PIN, HIGH); // Set the emergency pin high
+      sendAlert(); // Send the ESP-NOW message
       alertSent = true;
       break;
     }
   }
 
   if (!alertSent) {
-    digitalWrite(EMERG_PIN, LOW); // Ensure the alert pin is low if no alert is triggered
+    digitalWrite(EMERG_PIN, LOW); // Ensure the emergency pin is low if no emergency is triggered
   }
   
   Serial.print("Distances (cm): ");
